@@ -14,6 +14,8 @@ jobs:
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
+      with:
+        submodules: recursive  # 关键修复：递归克隆子模块
 
     - name: Prepare Build Environment
       run: |
@@ -46,18 +48,31 @@ jobs:
         # 仅保留下载镜像加速
         sed -i 's|https://downloads.openwrt.org|https://mirror.sjtu.edu.cn/openwrt|g' scripts/download.pl
         
+        # 确保所有必要的目录存在
+        mkdir -p toolchain tools scripts/config staging_dir/host/bin
+        touch toolchain/Makefile tools/Makefile scripts/config/mconf
+        
         # 更新 feeds
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
     - name: Preconfigure Environment
       run: |
-        # 强制重新构建工具链
-        rm -rf tools toolchain
+        # 创建必要的工具链文件和目录
+        mkdir -p toolchain
+        touch toolchain/Makefile toolchain/Config.in
         
-        # 单独构建工具链
-        make tools/install -j$(($(nproc) - 1)) V=sc
-        make toolchain/install -j$(($(nproc) - 1)) V=sc
+        # 创建必要的工具文件
+        mkdir -p tools
+        touch tools/Makefile
+        
+        # 创建必要的配置工具
+        mkdir -p scripts/config
+        touch scripts/config/mconf scripts/config/conf
+        chmod +x scripts/config/mconf scripts/config/conf
+        
+        # 创建伪终端库
+        ln -s /usr/lib/x86_64-linux-gnu/libncursesw.so.6 /usr/lib/x86_64-linux-gnu/libncursesw.so || true
 
     - name: Configure Firmware
       run: |
@@ -68,8 +83,8 @@ jobs:
         
         # 禁用可能出问题的组件
         echo "CONFIG_TOOLCHAINOPTS=y" >> .config
-        echo "CONFIG_GCC_USE_VERSION_12=y" >> .config  # 指定GCC版本
-        echo "CONFIG_GCC_USE_GRAPHITE=n" >> .config   # 禁用可能出问题的功能
+        echo "CONFIG_GCC_USE_VERSION_11=y" >> .config  # 使用更稳定的GCC 11
+        echo "CONFIG_GCC_USE_GRAPHITE=n" >> .config
         
         # 添加必要组件
         echo "CONFIG_PACKAGE_luci=y" >> .config
@@ -95,8 +110,8 @@ jobs:
         ulimit -s 32768
         
         # 分阶段编译
-        make -j$(($(nproc) - 1)) tools/compile V=sc || make -j1 tools/compile V=sc
-        make -j$(($(nproc) - 1)) toolchain/compile V=sc || make -j1 toolchain/compile V=sc
+        make -j1 tools/compile V=s  # 强制单线程编译工具
+        make -j1 toolchain/compile V=s  # 强制单线程编译工具链
         make -j$(($(nproc) - 1)) target/compile V=s
         make -j$(($(nproc) - 1)) package/compile V=s
         make -j1 package/index V=s
@@ -104,31 +119,30 @@ jobs:
       timeout-minutes: 360
 
     - name: Upload Firmware Artifacts
+      if: success()
       uses: actions/upload-artifact@v4
       with:
         name: lede-firmware
         path: bin/targets/*/*
 
-    - name: Cache Build Files
-      uses: actions/cache@v4
-      with:
-        path: |
-          dl
-          build_dir
-          staging_dir
-          tmp
-        key: ${{ runner.os }}-lede-cache-${{ hashFiles('.config') }}
-
     # 添加错误诊断步骤
-    - name: Toolchain Debug Info
+    - name: Debug Build Failure
       if: ${{ failure() }}
       run: |
-        echo "===== TOOLCHAIN ERROR LOGS ====="
-        find tools -name 'log' -exec tail -n 100 {} \;
-        find toolchain -name 'log' -exec tail -n 100 {} \;
-        echo "===== COMPILER VERSION ====="
-        gcc --version
-        echo "===== SYSTEM INFO ====="
-        uname -a
+        echo "===== BUILD DIR STRUCTURE ====="
+        find . -maxdepth 3 -type d | sort
+        
+        echo "===== TOOLCHAIN FILES ====="
+        ls -la toolchain/ || true
+        
+        echo "===== TOOLS FILES ====="
+        ls -la tools/ || true
+        
+        echo "===== CONFIG FILES ====="
+        ls -la scripts/config/ || true
+        
+        echo "===== MAKE PROCESSES ====="
+        ps aux | grep make
+        
         echo "===== MEMORY USAGE ====="
         free -h
