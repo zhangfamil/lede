@@ -20,6 +20,8 @@ jobs:
         # 设置国内镜像源加速（可选）
         sed -i 's|github.com|ghproxy.com/https://github.com|g' feeds.conf.default
         sed -i 's|git.openwrt.org|ghproxy.com/https://git.openwrt.org|g' feeds.conf.default
+        # 替换 DL 库镜像源
+        sed -i 's|https://downloads.openwrt.org|https://mirror.sjtu.edu.cn/openwrt|g' scripts/download.pl
         
         # 更新 feeds
         ./scripts/feeds update -a
