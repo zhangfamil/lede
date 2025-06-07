@@ -17,9 +17,11 @@ jobs:
 
     - name: Prepare Build Environment
       run: |
-        # 设置镜像源加速（国内用户推荐）
-        sed -i 's|github.com|ghproxy.com/https://github.com|g' feeds.conf.default
-        sed -i 's|git.openwrt.org|ghproxy.com/https://git.openwrt.org|g' feeds.conf.default
+        # 移除问题镜像源，改用原始源
+        sed -i 's|ghproxy.com/https://github.com|github.com|g' feeds.conf.default
+        sed -i 's|ghproxy.com/https://git.openwrt.org|git.openwrt.org|g' feeds.conf.default
+        
+        # 仅保留下载镜像加速
         sed -i 's|https://downloads.openwrt.org|https://mirror.sjtu.edu.cn/openwrt|g' scripts/download.pl
         
         # 更新 feeds
@@ -27,7 +29,12 @@ jobs:
         ./scripts/feeds install -a
 
     - name: Download Packages
-      run: make -j$(nproc) download
+      run: |
+        # 设置 GitHub 代理环境变量
+        export GIT_TERMINAL_PROMPT=1
+        export http_proxy=http://ghproxy.com
+        export https_proxy=http://ghproxy.com
+        make -j$(nproc) download
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -47,14 +54,12 @@ jobs:
       run: make -j$(($(nproc) + 1)) V=s
       timeout-minutes: 360
 
-    # 修复点：使用最新版 artifact action v4
     - name: Upload Firmware Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: lede-firmware
         path: bin/targets/*/*
 
-    # 新增：保存编译缓存加速下次构建
     - name: Cache Build Files
       uses: actions/cache@v4
       with:
