@@ -83,3 +83,11 @@ jobs:
           staging_dir
           tmp
         key: ${{ runner.os }}-lede-cache-${{ hashFiles('.config') }}
+
+     - name: Debug Info
+       run: |
+      ls -l scripts/config/
+      file scripts/config/mconf
+      ldd scripts/config/mconf || true
+      make -v
+      nproc
