@@ -19,7 +19,25 @@ jobs:
       run: |
         # 安装必要依赖
         apt-get update
-        apt-get install -y ncurses-base libncurses5-dev libssl-dev zlib1g-dev gawk
+        apt-get install -y \
+          build-essential \
+          libncurses5-dev \
+          libncursesw5-dev \
+          zlib1g-dev \
+          gawk \
+          gettext \
+          unzip \
+          file \
+          python3 \
+          rsync \
+          wget \
+          curl \
+          git \
+          subversion \
+          mercurial
+        
+        # 设置环境变量
+        export FORCE_UNSAFE_CONFIGURE=1
         
         # 恢复原始源设置
         sed -i 's|ghproxy.com/https://github.com|github.com|g' feeds.conf.default
@@ -34,28 +52,31 @@ jobs:
 
     - name: Preconfigure Environment
       run: |
-        # 预先生成配置工具而不触发终端
-        make -j1 tools/install V=s || true
-        make -j1 toolchain/install V=s || true
+        # 强制重新构建工具链
+        rm -rf tools toolchain
         
-        # 创建必要的配置文件
-        touch .config
+        # 单独构建工具链
+        make tools/install -j$(($(nproc) - 1)) V=sc
+        make toolchain/install -j$(($(nproc) - 1)) V=sc
 
     - name: Configure Firmware
       run: |
-        # 使用非交互方式生成默认配置
+        # 使用精简配置
         echo "CONFIG_TARGET_x86=y" > .config
         echo "CONFIG_TARGET_x86_64=y" >> .config
         echo "CONFIG_TARGET_ROOTFS_EXT4FS=y" >> .config
-        echo "CONFIG_TARGET_IMAGES_GZIP=n" >> .config  # 禁用Gzip压缩节省时间
         
-        # 添加常用插件
+        # 禁用可能出问题的组件
+        echo "CONFIG_TOOLCHAINOPTS=y" >> .config
+        echo "CONFIG_GCC_USE_VERSION_12=y" >> .config  # 指定GCC版本
+        echo "CONFIG_GCC_USE_GRAPHITE=n" >> .config   # 禁用可能出问题的功能
+        
+        # 添加必要组件
         echo "CONFIG_PACKAGE_luci=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-ssr-plus=y" >> .config
-        echo "CONFIG_PACKAGE_luci-theme-material=y" >> .config
         
         # 验证配置
-        make oldconfig
+        make defconfig
 
     - name: Download Packages
       run: |
@@ -74,13 +95,11 @@ jobs:
         ulimit -s 32768
         
         # 分阶段编译
-        make -j$(($(nproc) - 1)) tools/compile V=s
-        make -j$(($(nproc) - 1)) toolchain/compile V=s
+        make -j$(($(nproc) - 1)) tools/compile V=sc || make -j1 tools/compile V=sc
+        make -j$(($(nproc) - 1)) toolchain/compile V=sc || make -j1 toolchain/compile V=sc
         make -j$(($(nproc) - 1)) target/compile V=s
         make -j$(($(nproc) - 1)) package/compile V=s
         make -j1 package/index V=s
-        
-        # 最终打包
         make -j1 V=s
       timeout-minutes: 360
 
@@ -100,9 +119,16 @@ jobs:
           tmp
         key: ${{ runner.os }}-lede-cache-${{ hashFiles('.config') }}
 
-    # 添加调试步骤
-    - name: Show Error Logs if Failed
+    # 添加错误诊断步骤
+    - name: Toolchain Debug Info
       if: ${{ failure() }}
       run: |
-        find build_dir -name 'log' -exec tail -n 100 {} \;
-        find staging_dir -name 'config.log' -exec cat {} \;
+        echo "===== TOOLCHAIN ERROR LOGS ====="
+        find tools -name 'log' -exec tail -n 100 {} \;
+        find toolchain -name 'log' -exec tail -n 100 {} \;
+        echo "===== COMPILER VERSION ====="
+        gcc --version
+        echo "===== SYSTEM INFO ====="
+        uname -a
+        echo "===== MEMORY USAGE ====="
+        free -h
