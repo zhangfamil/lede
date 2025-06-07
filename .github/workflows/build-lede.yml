@@ -17,9 +17,6 @@ jobs:
 
     - name: Prepare Build Environment
       run: |
-        # 设置终端模拟环境变量
-        export TERM=xterm
-        
         # 安装必要依赖
         apt-get update
         apt-get install -y ncurses-base
@@ -35,29 +32,40 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Download Packages
-      run: make -j$(nproc) download
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Preconfigure Environment
+      run: |
+        # 预先生成配置工具而不触发终端
+        make -j1 tools/install V=s || true
+        make -j1 toolchain/install V=s || true
 
     - name: Configure Firmware
       run: |
+        # 使用非交互方式生成默认配置
+        echo "CONFIG_TARGET_x86=y" > .config
+        echo "CONFIG_TARGET_x86_64=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_EXT4FS=y" >> .config
+        
+        # 添加常用插件
+        echo "CONFIG_PACKAGE_luci=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-ssr-plus=y" >> .config
+        echo "CONFIG_PACKAGE_luci-theme-material=y" >> .config
+        
+        # 验证配置
+        make oldconfig
+
+    - name: Download Packages
+      run: |
         # 设置虚拟终端环境
         export TERM=dumb
-        
-        # 生成默认配置（非交互模式）
-        if [ -f ".config" ]; then
-          cp .config .config.old
-        fi
-        yes "" | make defconfig
-        
-        # 自定义配置（示例）
-        echo "CONFIG_TARGET_x86=y" >> .config
-        echo "CONFIG_TARGET_x86_64=y" >> .config
-        echo "CONFIG_PACKAGE_luci-app-ssr-plus=y" >> .config
+        make -j$(nproc) download
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build Firmware
-      run: make -j$(($(nproc) + 1)) V=s
+      run: |
+        # 设置虚拟终端环境
+        export TERM=dumb
+        make -j$(($(nproc) + 1)) V=s
       timeout-minutes: 360
 
     - name: Upload Firmware Artifacts
