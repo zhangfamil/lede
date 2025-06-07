@@ -3,13 +3,13 @@ name: Build LEDE Firmware
 on:
   workflow_dispatch:  # 手动触发编译
   push:
-    branches: [ main ]  # 代码更新时自动编译
+    branches: [ main ]
 
 jobs:
   build:
-    runs-on: ubuntu-latest  # 使用 GitHub 最新 Ubuntu 环境
+    runs-on: ubuntu-latest
     container:
-      image: timiil/coolsnowwolf-lede-builder:latest  # 预装环境的 Docker 镜像
+      image: timiil/coolsnowwolf-lede-builder:latest
 
     steps:
     - name: Checkout Repository
@@ -17,10 +17,9 @@ jobs:
 
     - name: Prepare Build Environment
       run: |
-        # 设置国内镜像源加速（可选）
+        # 设置镜像源加速（国内用户推荐）
         sed -i 's|github.com|ghproxy.com/https://github.com|g' feeds.conf.default
         sed -i 's|git.openwrt.org|ghproxy.com/https://git.openwrt.org|g' feeds.conf.default
-        # 替换 DL 库镜像源
         sed -i 's|https://downloads.openwrt.org|https://mirror.sjtu.edu.cn/openwrt|g' scripts/download.pl
         
         # 更新 feeds
@@ -28,25 +27,40 @@ jobs:
         ./scripts/feeds install -a
 
     - name: Download Packages
-      run: make -j8 download  # 预下载依赖包
+      run: make -j$(nproc) download
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 使用 GitHub 内置 token 避免限流
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Configure Firmware
       run: |
-        # 使用预设配置（需提前上传.config文件）
         if [ -f ".config" ]; then
           cp .config .config.old
         fi
-        make defconfig  # 生成默认配置
-        # 或手动配置：make menuconfig (需本地生成.config后上传)
+        make defconfig
+
+        # 自定义配置（示例）
+        echo "CONFIG_TARGET_x86=y" >> .config
+        echo "CONFIG_TARGET_x86_64=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-ssr-plus=y" >> .config
 
     - name: Build Firmware
-      run: make -j$(($(nproc) + 1)) V=s  # 多线程编译
-      timeout-minutes: 360  # 最长编译时间 6 小时
+      run: make -j$(($(nproc) + 1)) V=s
+      timeout-minutes: 360
 
-    - name: Upload Artifacts
+    # 修复点：使用最新版 artifact action v4
+    - name: Upload Firmware Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: lede-firmware
         path: bin/targets/*/*
+
+    # 新增：保存编译缓存加速下次构建
+    - name: Cache Build Files
+      uses: actions/cache@v4
+      with:
+        path: |
+          dl
+          build_dir
+          staging_dir
+          tmp
+        key: ${{ runner.os }}-lede-cache-${{ hashFiles('.config') }}
