@@ -17,7 +17,14 @@ jobs:
 
     - name: Prepare Build Environment
       run: |
-        # 移除问题镜像源，改用原始源
+        # 设置终端模拟环境变量
+        export TERM=xterm
+        
+        # 安装必要依赖
+        apt-get update
+        apt-get install -y ncurses-base
+        
+        # 恢复原始源设置
         sed -i 's|ghproxy.com/https://github.com|github.com|g' feeds.conf.default
         sed -i 's|ghproxy.com/https://git.openwrt.org|git.openwrt.org|g' feeds.conf.default
         
@@ -29,22 +36,21 @@ jobs:
         ./scripts/feeds install -a
 
     - name: Download Packages
-      run: |
-        # 设置 GitHub 代理环境变量
-        export GIT_TERMINAL_PROMPT=1
-        export http_proxy=http://ghproxy.com
-        export https_proxy=http://ghproxy.com
-        make -j$(nproc) download
+      run: make -j$(nproc) download
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Configure Firmware
       run: |
+        # 设置虚拟终端环境
+        export TERM=dumb
+        
+        # 生成默认配置（非交互模式）
         if [ -f ".config" ]; then
           cp .config .config.old
         fi
-        make defconfig
-
+        yes "" | make defconfig
+        
         # 自定义配置（示例）
         echo "CONFIG_TARGET_x86=y" >> .config
         echo "CONFIG_TARGET_x86_64=y" >> .config
