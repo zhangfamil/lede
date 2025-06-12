@@ -1,0 +1,14 @@
+name: Sync Fork
+on:
+  schedule:
+    - cron: '0 * * * *'  # 每小时第0分钟触发（可改为每天：'0 0 * * *'）
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: TG908/fork-sync@v1.6.3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          owner: original_owner  # 上游仓库作者（如：torvalds）
+          head: main             # 上游仓库分支
+          base: main             # 本地Fork仓库分支
